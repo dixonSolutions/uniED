@@ -1,0 +1,13 @@
+node_modules/
+dist/
+out/
+.angular/
+*.log
+*.tsbuildinfo
+.DS_Store
+*.swp
+.env
+.env.local
+release/
+coverage/
+src-tauri/target/

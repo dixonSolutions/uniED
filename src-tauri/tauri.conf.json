@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "uniED",
+  "version": "0.1.0",
+  "identifier": "com.unied.app",
+  "build": {
+    "beforeDevCommand": "npm run dev:static",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://127.0.0.1:4200",
+    "frontendDist": "../packages/renderer/dist/renderer/browser"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "uniED",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 500,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Productivity",
+    "shortDescription": "Desktop editor with LibreOffice-backed documents",
+    "longDescription": "uniED — workspace file tree, tabs, CodeMirror, and LOK canvas (when enabled)."
+  },
+  "plugins": {}
+}

@@ -1,0 +1,26 @@
+{
+  "name": "unied",
+  "version": "0.1.0",
+  "private": true,
+  "description": "uniED — Tauri + Angular desktop editor",
+  "workspaces": ["packages/shared-types", "packages/renderer"],
+  "scripts": {
+    "build": "npm run build:shared-types && npm run build:renderer",
+    "build:shared-types": "npm run build -w @unied/shared-types",
+    "build:renderer": "npm run build -w @unied/renderer",
+    "start": "tauri dev",
+    "dev": "tauri dev",
+    "tauri:dev": "tauri dev",
+    "dev:static": "npm run build && serve packages/renderer/dist/renderer/browser -l 4200 -s --no-clipboard",
+    "dev:renderer": "npm run start -w @unied/renderer",
+    "tauri": "tauri",
+    "lint": "npm run build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0",
+    "serve": "^14.2.4"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
