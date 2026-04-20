@@ -4,7 +4,19 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter, Manager, State};
-use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_dialog::{DialogExt, FilePath};
+use tokio::sync::oneshot;
+
+/// Convert a `FilePath` returned by the GTK/native dialog to a plain absolute path string.
+/// The dialog may return either a `FilePath::Path` (good) or a `FilePath::Url` (`file:///…`).
+/// We try `into_path()` first (handles both), then fall back to manually stripping the scheme.
+fn file_path_to_string(fp: FilePath) -> Option<String> {
+    // into_path() converts file:// URLs → PathBuf for us.
+    if let Ok(pb) = fp.into_path() {
+        return pb.to_str().map(String::from);
+    }
+    None
+}
 
 fn validate_abs(p: &str) -> Result<PathBuf, String> {
     let path = Path::new(p);
@@ -37,23 +49,36 @@ fn read_dir_recursive(dir: &Path, max_depth: usize, depth: usize) -> Result<Vec<
     if depth > max_depth {
         return Ok(vec![]);
     }
-    let mut entries: Vec<_> = fs::read_dir(dir)
-        .map_err(|e| e.to_string())?
-        .filter_map(|e| e.ok())
-        .collect();
+
+    // Fail fast only if we cannot list the top-level directory itself.
+    let raw_entries = fs::read_dir(dir)
+        .map_err(|e| format!("Cannot read '{}': {}", dir.display(), e))?;
+
+    let mut entries: Vec<_> = raw_entries.filter_map(|e| e.ok()).collect();
     entries.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
 
     let mut nodes = Vec::new();
     for ent in entries {
         let name = ent.file_name().to_string_lossy().to_string();
+        // Skip hidden and system entries.
         if name.starts_with('.') {
             continue;
         }
-        let meta = ent.metadata().map_err(|e| e.to_string())?;
+
+        // Use the DirEntry's cached metadata (avoids an extra syscall on most platforms).
+        // Skip any entry whose metadata we cannot read (broken symlink, permission denied, etc.)
+        // rather than aborting the entire tree build.
+        let meta = match ent.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+
         let full = ent.path();
         let full_str = full.to_string_lossy().to_string();
+
         if meta.is_dir() {
-            let children = read_dir_recursive(&full, max_depth, depth + 1)?;
+            // If a sub-directory cannot be read, show it as an empty folder rather than failing.
+            let children = read_dir_recursive(&full, max_depth, depth + 1).unwrap_or_default();
             nodes.push(FsTreeNode {
                 name,
                 path: full_str,
@@ -68,18 +93,27 @@ fn read_dir_recursive(dir: &Path, max_depth: usize, depth: usize) -> Result<Vec<
                 children: None,
             });
         }
+        // Symlinks and other special file types are intentionally skipped.
     }
     Ok(nodes)
 }
 
+/// Use the callback-based API so the dialog runs on the GTK main thread (Linux).
+/// `blocking_pick_folder()` deadlocks because Tauri commands run on a thread-pool
+/// worker, not the GTK main thread.
+/// We also convert via `into_path()` so we always get a plain `/absolute/path`
+/// string rather than a `file:///…` URL, which would fail `validate_abs`.
 #[tauri::command]
 pub async fn fs_open_folder(app: AppHandle) -> Result<Option<String>, String> {
-    let picked = app
-        .dialog()
+    let (tx, rx) = oneshot::channel();
+    app.dialog()
         .file()
         .set_title("Open workspace folder")
-        .blocking_pick_folder();
-    Ok(picked.map(|p| p.to_string()))
+        .pick_folder(move |folder| {
+            let path_str = folder.and_then(file_path_to_string);
+            let _ = tx.send(path_str);
+        });
+    rx.await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]

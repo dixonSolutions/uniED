@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.unied.app",
   "build": {
-    "beforeDevCommand": "npm run dev:static",
+    "beforeDevCommand": "npm run dev:ng",
     "beforeBuildCommand": "npm run build",
     "devUrl": "http://127.0.0.1:4200",
     "frontendDist": "../packages/renderer/dist/renderer/browser"

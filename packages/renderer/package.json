@@ -5,6 +5,7 @@
   "scripts": {
     "ng": "ng",
     "start": "ng serve --host 127.0.0.1 --port 4200",
+    "serve": "ng serve --host 127.0.0.1 --port 4200 --configuration development",
     "build": "ng build --configuration production",
     "watch": "ng build --watch --configuration development"
   },

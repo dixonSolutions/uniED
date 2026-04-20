@@ -1,7 +1,5 @@
 import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import type { FsTreeNode } from '@unied/shared-types';
-import { SplitterModule } from 'primeng/splitter';
-import { AppHeaderComponent } from './shell/app-header.component';
 import { WelcomeComponent } from './shell/welcome.component';
 import { SidebarComponent } from './sidebar/sidebar.component';
 import { TabBarComponent } from './tabs/tab-bar.component';
@@ -15,9 +13,7 @@ import { TabsService } from './services/tabs.service';
   selector: 'app-root',
   standalone: true,
   imports: [
-    AppHeaderComponent,
     WelcomeComponent,
-    SplitterModule,
     SidebarComponent,
     TabBarComponent,
     EditorPaneComponent,
@@ -25,35 +21,35 @@ import { TabsService } from './services/tabs.service';
   template: `
     <div class="app-shell">
       @if (rootFolder(); as folder) {
-        <app-header />
-        <p-splitter
-          [style]="{ flex: '1', minHeight: 0, width: '100%' }"
-          [panelSizes]="[22, 78]"
-          [minSizes]="[14, 40]"
-          styleClass="unied-splitter flex-1"
-        >
-          <ng-template pTemplate>
-            <div class="sidebar-wrap">
-              <app-sidebar
-                [rootPath]="folder"
-                [nodes]="tree()"
-                (openFolder)="onOpenFolder()"
-                (fileClick)="onFileOpen($event)"
-              />
-            </div>
-          </ng-template>
-          <ng-template pTemplate>
-            <div class="main-wrap">
-              <app-tab-bar
-                [tabs]="tabs.tabs()"
-                [activeId]="tabs.activeId()"
-                (select)="tabs.selectTab($event)"
-                (close)="onTabClose($event)"
-              />
-              <app-editor-pane />
-            </div>
-          </ng-template>
-        </p-splitter>
+        <div class="workspace">
+          <aside class="side" [style.width.px]="sidebarWidth()">
+            <app-sidebar
+              [rootPath]="folder"
+              [nodes]="tree()"
+              [loading]="loading()"
+              [treeError]="treeError()"
+              (openFolder)="onOpenFolder()"
+              (fileClick)="onFileOpen($event)"
+            />
+          </aside>
+          <div
+            class="resizer"
+            role="separator"
+            aria-orientation="vertical"
+            tabindex="0"
+            (mousedown)="startResize($event)"
+            (keydown)="onResizerKey($event)"
+          ></div>
+          <main class="main">
+            <app-tab-bar
+              [tabs]="tabs.tabs()"
+              [activeId]="tabs.activeId()"
+              (select)="tabs.selectTab($event)"
+              (close)="onTabClose($event)"
+            />
+            <app-editor-pane />
+          </main>
+        </div>
       } @else {
         <app-welcome
           [lastFolder]="lastFolderHint()"
@@ -71,27 +67,46 @@ import { TabsService } from './services/tabs.service';
     .app-shell {
       display: flex;
       flex-direction: column;
-      height: 100%;
+      height: 100vh;
+      min-height: 0;
+      overflow: hidden;
+    }
+    app-welcome {
+      flex: 1;
       min-height: 0;
     }
-    :host ::ng-deep .unied-splitter {
-      border: none;
-      background: transparent;
+    .workspace {
+      flex: 1;
+      display: grid;
+      grid-template-columns: auto 6px 1fr;
+      min-height: 0;
+      overflow: hidden;
+      background: var(--surface-ground);
     }
-    :host ::ng-deep .unied-splitter .p-splitter-gutter {
-      background: var(--surface-border);
-    }
-    .sidebar-wrap {
+    .side {
+      min-width: 200px;
+      max-width: 480px;
       height: 100%;
       min-height: 0;
       overflow: hidden;
       display: flex;
-      flex-direction: column;
       background: var(--surface-card);
+      border-right: 1px solid var(--surface-border);
     }
-    .main-wrap {
-      height: 100%;
+    .resizer {
+      cursor: col-resize;
+      background: transparent;
+      position: relative;
+    }
+    .resizer:hover,
+    .resizer:focus-visible {
+      background: var(--primary-color);
+      outline: none;
+    }
+    .main {
+      min-width: 0;
       min-height: 0;
+      height: 100%;
       display: flex;
       flex-direction: column;
       overflow: hidden;
@@ -107,30 +122,45 @@ export class App implements OnInit, OnDestroy {
 
   readonly rootFolder = signal<string | null>(null);
   readonly tree = signal<FsTreeNode[]>([]);
-  /** Last folder we know about, even if not yet re-opened. */
+  readonly loading = signal<boolean>(false);
+  readonly treeError = signal<string | null>(null);
   readonly lastFolderHint = signal<string | null>(null);
+  readonly sidebarWidth = signal<number>(280);
 
   private unwatchFs: (() => void) | null = null;
+  private resizeStart: { x: number; w: number } | null = null;
 
   async ngOnInit(): Promise<void> {
-    await this.theme.initFromConfig();
-    const cfg = await this.config.get();
-    this.lastFolderHint.set(cfg.lastWorkspaceFolder ?? null);
+    // Never let any startup step freeze the UI — each awaited call is independent.
+    try { await this.theme.initFromConfig(); } catch { /* use defaults */ }
 
-    if (cfg.lastWorkspaceFolder) {
+    let lastFolder: string | undefined;
+    try {
+      const cfg = await this.config.get();
+      lastFolder = cfg.lastWorkspaceFolder;
+      this.lastFolderHint.set(lastFolder ?? null);
+    } catch { /* config unreadable — start fresh */ }
+
+    if (lastFolder) {
+      this.loading.set(true);
       try {
-        const nodes = await this.fs.readDir(cfg.lastWorkspaceFolder);
-        this.rootFolder.set(cfg.lastWorkspaceFolder);
+        const nodes = await this.fs.readDir(lastFolder);
         this.tree.set(nodes);
-        await this.fs.watch(cfg.lastWorkspaceFolder);
+        this.treeError.set(null);
+        this.rootFolder.set(lastFolder);
+        this.fs.watch(lastFolder).catch(() => { /* watcher optional */ });
       } catch {
         this.rootFolder.set(null);
+        this.lastFolderHint.set(null);
+      } finally {
+        this.loading.set(false);
       }
     }
 
-    this.unwatchFs = await this.fs.onFsChanged(() => {
-      void this.refreshTree();
-    });
+    // Event listener is also non-critical.
+    try {
+      this.unwatchFs = await this.fs.onFsChanged(() => { void this.refreshTree(); });
+    } catch { /* live-reload unavailable */ }
   }
 
   ngOnDestroy(): void {
@@ -140,24 +170,45 @@ export class App implements OnInit, OnDestroy {
   async onOpenFolder(): Promise<void> {
     const folder = await this.fs.openFolder();
     if (!folder) return;
+
+    // Show workspace immediately — don't wait for tree or watcher.
     this.rootFolder.set(folder);
     this.lastFolderHint.set(folder);
-    await this.config.set({ lastWorkspaceFolder: folder });
-    await this.refreshTree();
-    await this.fs.watch(folder);
+    this.config.set({ lastWorkspaceFolder: folder }).catch(() => {});
+
+    this.loading.set(true);
+    this.treeError.set(null);
+    try {
+      const nodes = await this.fs.readDir(folder);
+      this.tree.set(nodes);
+    } catch (err) {
+      this.tree.set([]);
+      this.treeError.set(String(err));
+      console.error('[uniED] readDir failed:', err);
+    } finally {
+      this.loading.set(false);
+    }
+
+    this.fs.watch(folder).catch(() => {});
   }
 
   async onReopenLast(): Promise<void> {
     const last = this.lastFolderHint();
     if (!last) return;
+    this.rootFolder.set(last);
+    this.loading.set(true);
+    this.treeError.set(null);
     try {
       const nodes = await this.fs.readDir(last);
-      this.rootFolder.set(last);
       this.tree.set(nodes);
-      await this.fs.watch(last);
-    } catch {
-      void this.onOpenFolder();
+    } catch (err) {
+      this.tree.set([]);
+      this.treeError.set(String(err));
+      console.error('[uniED] readDir failed:', err);
+    } finally {
+      this.loading.set(false);
     }
+    this.fs.watch(last).catch(() => {});
   }
 
   async refreshTree(): Promise<void> {
@@ -169,8 +220,9 @@ export class App implements OnInit, OnDestroy {
     try {
       const nodes = await this.fs.readDir(root);
       this.tree.set(nodes);
-    } catch {
-      this.tree.set([]);
+      this.treeError.set(null);
+    } catch (err) {
+      console.error('[uniED] refreshTree failed:', err);
     }
   }
 
@@ -180,5 +232,32 @@ export class App implements OnInit, OnDestroy {
 
   onTabClose(id: string): void {
     this.tabs.closeTab(id);
+  }
+
+  startResize(ev: MouseEvent): void {
+    ev.preventDefault();
+    this.resizeStart = { x: ev.clientX, w: this.sidebarWidth() };
+    const move = (e: MouseEvent) => this.onResizeMove(e);
+    const up = () => {
+      this.resizeStart = null;
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  }
+
+  private onResizeMove(ev: MouseEvent): void {
+    if (!this.resizeStart) return;
+    const next = this.resizeStart.w + (ev.clientX - this.resizeStart.x);
+    this.sidebarWidth.set(Math.max(200, Math.min(560, next)));
+  }
+
+  onResizerKey(ev: KeyboardEvent): void {
+    if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') {
+      ev.preventDefault();
+      const delta = ev.key === 'ArrowLeft' ? -16 : 16;
+      this.sidebarWidth.set(Math.max(200, Math.min(560, this.sidebarWidth() + delta)));
+    }
   }
 }

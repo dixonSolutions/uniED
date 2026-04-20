@@ -11,6 +11,7 @@
     "start": "tauri dev",
     "dev": "tauri dev",
     "tauri:dev": "tauri dev",
+    "dev:ng": "npm run build:shared-types && fuser -k 4200/tcp 2>/dev/null; npm run serve -w @unied/renderer",
     "dev:static": "npm run build && serve packages/renderer/dist/renderer/browser -l 4200 -s --no-clipboard",
     "dev:renderer": "npm run start -w @unied/renderer",
     "tauri": "tauri",

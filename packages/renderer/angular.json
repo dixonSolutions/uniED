@@ -36,7 +36,8 @@
               "../../node_modules/primeicons/primeicons.css",
               "src/styles.css"
             ],
-            "scripts": []
+            "scripts": [],
+            "allowedCommonJsDependencies": ["@unied/shared-types"]
           },
           "configurations": {
             "production": {

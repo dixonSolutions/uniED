@@ -1,5 +1,13 @@
-import { invoke, isTauri } from '@tauri-apps/api/core';
+import { invoke } from '@tauri-apps/api/core';
 import { createBrowserUniedApi } from './browser-unied-api';
+
+/** Tauri 2 injects window.__TAURI_INTERNALS__ — this is the only reliable check. */
+function hasTauriContext(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    !!(window as unknown as Record<string, unknown>)['__TAURI_INTERNALS__']
+  );
+}
 import { listen } from '@tauri-apps/api/event';
 import {
   TAURI_CMD,
@@ -47,7 +55,7 @@ let cachedApi: UniedTauriApi | null = null;
 
 export function getUniedApi(): UniedTauriApi {
   if (!cachedApi) {
-    cachedApi = isTauri() ? createUniedTauriApi() : createBrowserUniedApi();
+    cachedApi = hasTauriContext() ? createUniedTauriApi() : createBrowserUniedApi();
   }
   return cachedApi;
 }
