@@ -1,4 +1,5 @@
 mod commands;
+mod lok;
 
 use commands::*;
 use parking_lot::Mutex;
@@ -38,7 +39,6 @@ pub fn run() {
             lok_render_tile,
             lok_post_key,
             lok_post_mouse,
-            lok_doc_size,
             lok_command,
         ])
         .run(tauri::generate_context!())

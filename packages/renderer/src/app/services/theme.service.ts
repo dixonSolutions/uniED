@@ -3,12 +3,6 @@ import { ConfigService } from './config.service';
 
 export type UiTheme = 'light' | 'dark';
 
-/** Lara indigo — neutral surfaces, minimal chroma. */
-const PRIME_THEME_PATH: Record<UiTheme, string> = {
-  dark: 'primeng-themes/dark/theme.css',
-  light: 'primeng-themes/light/theme.css',
-};
-
 @Injectable({ providedIn: 'root' })
 export class ThemeService {
   private readonly configSvc = inject(ConfigService);
@@ -25,27 +19,19 @@ export class ThemeService {
     this.apply(t, false);
   }
 
-  /** User toggled theme; persists to app config. */
+  /** User-toggled theme; persists to app config. */
   async setMode(next: UiTheme): Promise<void> {
     this.apply(next, true);
   }
 
   private apply(next: UiTheme, persist: boolean): void {
     this.mode.set(next);
-    const root = document.documentElement;
-    root.dataset['theme'] = next;
-    root.classList.remove('dark', 'light');
-    root.classList.add(next);
 
-    const href = PRIME_THEME_PATH[next];
-    let link = document.getElementById('prime-theme') as HTMLLinkElement | null;
-    if (!link) {
-      link = document.createElement('link');
-      link.id = 'prime-theme';
-      link.rel = 'stylesheet';
-      document.head.appendChild(link);
-    }
-    link.href = href;
+    // PrimeNG 21 reads darkModeSelector: '.dark' from providePrimeNG config,
+    // so toggling this class is all that's needed to switch the full theme.
+    const root = document.documentElement;
+    root.classList.toggle('dark', next === 'dark');
+    root.classList.toggle('light', next === 'light');
 
     if (persist) {
       void this.configSvc.set({ theme: next });

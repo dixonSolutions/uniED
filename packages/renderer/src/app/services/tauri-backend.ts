@@ -14,11 +14,7 @@ import {
   type AppConfig,
   type FsChangedEvent,
   type FsTreeNode,
-  type LokKeyEventPayload,
-  type LokMouseEventPayload,
   type LokOpenResult,
-  type LokTileRequest,
-  type LokTileResult,
   type UniedTauriApi,
 } from '@unied/shared-types';
 
@@ -63,29 +59,28 @@ export function getUniedApi(): UniedTauriApi {
 export function createUniedTauriApi(): UniedTauriApi {
   return {
     fs: {
-      openFolder: () => invoke<string | null>(TAURI_CMD.FS_OPEN_FOLDER),
+      openFolder: (defaultDir?: string) =>
+        invoke<string | null>(TAURI_CMD.FS_OPEN_FOLDER, defaultDir ? { defaultDir } : {}),
       readDir: async (rootPath: string) => {
-        const raw = await invoke<RawFsNode[]>(TAURI_CMD.FS_READ_DIR, {
-          root_path: rootPath,
-        });
+        const raw = await invoke<RawFsNode[]>(TAURI_CMD.FS_READ_DIR, { rootPath });
         return normalizeTree(raw);
       },
       readFile: (filePath: string) =>
-        invoke<string>(TAURI_CMD.FS_READ_FILE, { file_path: filePath }),
+        invoke<string>(TAURI_CMD.FS_READ_FILE, { filePath }),
       writeFile: (filePath: string, content: string) =>
-        invoke<void>(TAURI_CMD.FS_WRITE_FILE, { file_path: filePath, content }),
+        invoke<void>(TAURI_CMD.FS_WRITE_FILE, { filePath, content }),
       createFile: (filePath: string, content?: string) =>
-        invoke<void>(TAURI_CMD.FS_CREATE_FILE, { file_path: filePath, content }),
+        invoke<void>(TAURI_CMD.FS_CREATE_FILE, { filePath, content }),
       createFolder: (folderPath: string) =>
-        invoke<void>(TAURI_CMD.FS_CREATE_FOLDER, { folder_path: folderPath }),
+        invoke<void>(TAURI_CMD.FS_CREATE_FOLDER, { folderPath }),
       rename: (oldPath: string, newPath: string) =>
-        invoke<void>(TAURI_CMD.FS_RENAME, { old_path: oldPath, new_path: newPath }),
+        invoke<void>(TAURI_CMD.FS_RENAME, { oldPath, newPath }),
       delete: (targetPath: string) =>
-        invoke<void>(TAURI_CMD.FS_DELETE, { target_path: targetPath }),
+        invoke<void>(TAURI_CMD.FS_DELETE, { targetPath }),
       watch: (rootPath: string) =>
-        invoke<void>(TAURI_CMD.FS_WATCH, { root_path: rootPath }),
+        invoke<void>(TAURI_CMD.FS_WATCH, { rootPath }),
       unwatch: (rootPath: string) =>
-        invoke<void>(TAURI_CMD.FS_UNWATCH, { root_path: rootPath }),
+        invoke<void>(TAURI_CMD.FS_UNWATCH, { rootPath }),
       onChanged: async (cb: (ev: FsChangedEvent) => void) => {
         const un = await listen<{ path: string; event: string }>(
           'fs-changed',
@@ -103,20 +98,27 @@ export function createUniedTauriApi(): UniedTauriApi {
     },
     lok: {
       open: (filePath: string) =>
-        invoke<LokOpenResult>(TAURI_CMD.LOK_OPEN, { file_path: filePath }),
+        invoke<LokOpenResult>(TAURI_CMD.LOK_OPEN, { filePath }),
       close: (docId: number) =>
-        invoke<void>(TAURI_CMD.LOK_CLOSE, { doc_id: docId }),
-      renderTile: (req: LokTileRequest) =>
-        invoke<LokTileResult>(TAURI_CMD.LOK_RENDER_TILE, { req }),
-      postKey: (payload: LokKeyEventPayload) =>
-        invoke<void>(TAURI_CMD.LOK_POST_KEY, { payload }),
-      postMouse: (payload: LokMouseEventPayload) =>
-        invoke<void>(TAURI_CMD.LOK_POST_MOUSE, { payload }),
-      docSize: (docId: number) =>
-        invoke<{ widthTwips: number; heightTwips: number }>(
-          TAURI_CMD.LOK_DOC_SIZE,
-          { doc_id: docId }
-        ),
+        invoke<void>(TAURI_CMD.LOK_CLOSE, { docId }),
+      renderTile: (
+        docId: number,
+        canvasW: number, canvasH: number,
+        tileX: number,  tileY: number,
+        tileW: number,  tileH: number,
+      ) =>
+        invoke<string>(TAURI_CMD.LOK_RENDER_TILE, { docId, canvasW, canvasH, tileX, tileY, tileW, tileH }),
+      postMouse: (
+        docId: number,
+        eventType: number, x: number, y: number,
+        count: number, buttons: number, modifier: number,
+      ) =>
+        invoke<void>(TAURI_CMD.LOK_POST_MOUSE, { docId, eventType, x, y, count, buttons, modifier }),
+      postKey: (
+        docId: number,
+        eventType: number, charCode: number, keyCode: number,
+      ) =>
+        invoke<void>(TAURI_CMD.LOK_POST_KEY, { docId, eventType, charCode, keyCode }),
       command: (cmd: string, args?: unknown) =>
         invoke(TAURI_CMD.LOK_COMMAND, { cmd, args }),
     },

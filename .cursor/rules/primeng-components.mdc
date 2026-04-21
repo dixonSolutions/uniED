@@ -1,0 +1,58 @@
+---
+description: Enforce PrimeNG as the sole UI component library in the Angular renderer
+globs: packages/renderer/**/*.ts
+alwaysApply: false
+---
+
+# PrimeNG — Use It Everywhere
+
+PrimeNG is the **only** UI component library for this project. Never hand-roll
+interactive elements when a PrimeNG equivalent exists.
+
+## Required substitutions
+
+| Raw HTML | PrimeNG replacement |
+|----------|---------------------|
+| `<button>` | `<p-button>` (import `ButtonModule`) |
+| `<input>` | `<p-inputtext>` / `<p-input-group>` |
+| Loading skeletons | `<p-skeleton>` (import `SkeletonModule`) |
+| Error messages | `<p-message>` (import `MessageModule`) |
+| Toasts | `<p-toast>` + `MessageService` (import `ToastModule`) |
+| Tooltips | `pTooltip` directive (import `TooltipModule`) — already correct |
+| File tree | `<p-tree>` (import `TreeModule`) — already correct |
+
+## Icon-only buttons
+
+Use `pButton` directive with `[rounded]="true"` and `[text]="true"`:
+
+```html
+<!-- ❌ BAD — raw button -->
+<button class="icon-btn" (click)="doThing()">
+  <i class="pi pi-folder-open"></i>
+</button>
+
+<!-- ✅ GOOD — PrimeNG -->
+<p-button
+  icon="pi pi-folder-open"
+  [text]="true"
+  [rounded]="true"
+  size="small"
+  pTooltip="Open another folder"
+  (onClick)="doThing()"
+/>
+```
+
+## Skeleton loading
+
+```html
+<!-- ❌ BAD — custom divs -->
+<div class="skeleton-row" [style.width]="w"></div>
+
+<!-- ✅ GOOD -->
+<p-skeleton height="0.875rem" [style]="{ width: w }" />
+```
+
+## Imports
+
+Always add the relevant module to the component's `imports: []` array.
+Never add styles for things PrimeNG already handles.

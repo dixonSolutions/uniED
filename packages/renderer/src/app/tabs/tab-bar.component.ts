@@ -1,12 +1,15 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { ButtonModule } from 'primeng/button';
+import { TooltipModule } from 'primeng/tooltip';
 import type { EditorTab } from '../services/tabs.service';
 
 @Component({
   selector: 'app-tab-bar',
   standalone: true,
+  imports: [ButtonModule, TooltipModule],
   template: `
-    <nav class="tab-bar" role="tablist" aria-label="Open files">
-      @if (tabs.length) {
+    @if (tabs.length) {
+      <nav class="tab-bar" role="tablist" aria-label="Open files">
         @for (tab of tabs; track tab.id) {
           <div
             class="tab"
@@ -14,6 +17,8 @@ import type { EditorTab } from '../services/tabs.service';
             role="tab"
             [attr.aria-selected]="tab.id === activeId"
           >
+            <!-- Tab label — complex slot content prevents a clean p-button swap here;
+                 close button uses p-button for consistency -->
             <button
               type="button"
               class="tab-label"
@@ -31,52 +36,52 @@ import type { EditorTab } from '../services/tabs.service';
                 <span class="dirty-dot" aria-label="Unsaved changes">•</span>
               }
             </button>
-            <button
-              type="button"
-              class="tab-close"
+            <p-button
+              icon="pi pi-times"
+              [text]="true"
+              [rounded]="true"
+              size="small"
               [attr.aria-label]="'Close ' + tab.title"
-              (click)="close.emit(tab.id)"
-            >
-              <i class="pi pi-times" aria-hidden="true"></i>
-            </button>
+              [pTooltip]="'Close ' + tab.title"
+              tooltipPosition="bottom"
+              styleClass="tab-close-btn"
+              (onClick)="close.emit(tab.id)"
+            />
           </div>
         }
-      } @else {
-        <span class="empty">No open files</span>
-      }
-    </nav>
+      </nav>
+    }
   `,
   styles: `
     :host {
       display: block;
       flex-shrink: 0;
-      background: var(--surface-card);
-      border-bottom: 1px solid var(--surface-border);
     }
+
     .tab-bar {
       display: flex;
       flex-wrap: nowrap;
       overflow-x: auto;
       align-items: stretch;
       min-height: 2.25rem;
+      background: var(--surface-card);
+      border-bottom: 1px solid var(--surface-border);
     }
-    .empty {
-      font-size: 0.8125rem;
-      color: var(--text-color-secondary);
-      padding: 0.5rem 0.75rem;
-    }
+
     .tab {
       display: inline-flex;
       align-items: center;
-      gap: 0.125rem;
-      padding: 0 0.25rem 0 0.625rem;
+      gap: 0;
+      padding: 0 0.125rem 0 0.625rem;
       border-right: 1px solid var(--surface-border);
       max-width: 16rem;
       position: relative;
     }
+
     .tab.active {
       background: var(--surface-ground);
     }
+
     .tab.active::after {
       content: '';
       position: absolute;
@@ -86,6 +91,7 @@ import type { EditorTab } from '../services/tabs.service';
       height: 2px;
       background: var(--primary-color);
     }
+
     .tab-label {
       display: inline-flex;
       align-items: center;
@@ -99,41 +105,37 @@ import type { EditorTab } from '../services/tabs.service';
       font-size: 0.8125rem;
       min-width: 0;
     }
+
     .tab.active .tab-label {
       color: var(--text-color);
       font-weight: 600;
     }
+
     .tab-name {
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      max-width: 12rem;
+      max-width: 10rem;
     }
+
     .dirty-dot {
       color: var(--primary-color);
       font-size: 1.25rem;
       line-height: 0;
     }
-    .tab-close {
-      background: transparent;
-      border: 0;
-      width: 1.5rem;
-      height: 1.5rem;
-      border-radius: 4px;
-      display: inline-grid;
-      place-items: center;
-      cursor: pointer;
-      color: var(--text-color-secondary);
-    }
-    .tab-close:hover {
-      background: var(--surface-hover);
-      color: var(--text-color);
-    }
-    .tab-label:focus-visible,
-    .tab-close:focus-visible {
+
+    .tab-label:focus-visible {
       outline: 2px solid var(--focus-ring, var(--primary-color));
       outline-offset: -2px;
       border-radius: 3px;
+    }
+
+    /* Constrain the p-button close to a compact square */
+    :host ::ng-deep .tab-close-btn.p-button {
+      width: 1.5rem;
+      height: 1.5rem;
+      padding: 0;
+      flex-shrink: 0;
     }
   `,
 })

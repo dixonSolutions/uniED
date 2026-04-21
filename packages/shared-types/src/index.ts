@@ -68,34 +68,17 @@ export interface FsChangedEvent {
   event: 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir';
 }
 
+/** Result of lok_open — document ID and full size in twips. */
 export interface LokOpenResult {
   docId: number;
   widthTwips: number;
   heightTwips: number;
-  tileSizePx: number;
-}
-
-export interface LokTileRequest {
-  docId: number;
-  tilePosX: number;
-  tilePosY: number;
-  tileWidth: number;
-  tileHeight: number;
-  canvasWidth: number;
-  canvasHeight: number;
-}
-
-export interface LokTileResult {
-  buffer: ArrayBuffer | Uint8Array;
-  width: number;
-  height: number;
-  format: 'bgra';
 }
 
 /** Renderer-facing API implemented with Tauri `invoke` / `listen`. */
 export interface UniedTauriApi {
   fs: {
-    openFolder: () => Promise<string | null>;
+    openFolder: (defaultDir?: string) => Promise<string | null>;
     readDir: (rootPath: string) => Promise<FsTreeNode[]>;
     readFile: (filePath: string) => Promise<string>;
     writeFile: (filePath: string, content: string) => Promise<void>;
@@ -110,10 +93,22 @@ export interface UniedTauriApi {
   lok: {
     open: (filePath: string) => Promise<LokOpenResult>;
     close: (docId: number) => Promise<void>;
-    renderTile: (req: LokTileRequest) => Promise<LokTileResult>;
-    postKey: (payload: LokKeyEventPayload) => Promise<void>;
-    postMouse: (payload: LokMouseEventPayload) => Promise<void>;
-    docSize: (docId: number) => Promise<{ widthTwips: number; heightTwips: number }>;
+    /** Returns base64-encoded RGBA pixel data (width × height × 4 bytes). */
+    renderTile: (
+      docId: number,
+      canvasW: number, canvasH: number,
+      tileX: number,  tileY: number,
+      tileW: number,  tileH: number,
+    ) => Promise<string>;
+    postMouse: (
+      docId: number,
+      eventType: number, x: number, y: number,
+      count: number, buttons: number, modifier: number,
+    ) => Promise<void>;
+    postKey: (
+      docId: number,
+      eventType: number, charCode: number, keyCode: number,
+    ) => Promise<void>;
     command: (cmd: string, args?: unknown) => Promise<unknown>;
   };
   config: {
@@ -124,23 +119,6 @@ export interface UniedTauriApi {
 
 /** @deprecated Use UniedTauriApi */
 export type UniedPreloadApi = UniedTauriApi;
-
-export interface LokKeyEventPayload {
-  docId: number;
-  type: number;
-  charcode: number;
-  keycode: number;
-}
-
-export interface LokMouseEventPayload {
-  docId: number;
-  type: number;
-  x: number;
-  y: number;
-  count: number;
-  buttons: number;
-  modifier: number;
-}
 
 export interface AppConfig {
   lastWorkspaceFolder?: string;

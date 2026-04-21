@@ -19,20 +19,8 @@
             "polyfills": ["zone.js"],
             "tsConfig": "tsconfig.app.json",
             "inlineStyleLanguage": "css",
-            "assets": [
-              {
-                "glob": "**/*",
-                "input": "../../node_modules/primeng/resources/themes/lara-dark-indigo",
-                "output": "/primeng-themes/dark"
-              },
-              {
-                "glob": "**/*",
-                "input": "../../node_modules/primeng/resources/themes/lara-light-indigo",
-                "output": "/primeng-themes/light"
-              }
-            ],
+            "assets": [],
             "styles": [
-              "../../node_modules/primeng/resources/primeng.css",
               "../../node_modules/primeicons/primeicons.css",
               "src/styles.css"
             ],

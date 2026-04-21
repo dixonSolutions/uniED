@@ -7,11 +7,7 @@ import type {
   AppConfig,
   FsChangedEvent,
   FsTreeNode,
-  LokKeyEventPayload,
-  LokMouseEventPayload,
   LokOpenResult,
-  LokTileRequest,
-  LokTileResult,
   UniedTauriApi,
 } from '@unied/shared-types';
 
@@ -135,7 +131,7 @@ const lokUnavailable = (): never => {
 
 export function createBrowserUniedApi(): UniedTauriApi {
   const fsApi = {
-    openFolder: async () => {
+    openFolder: async (_defaultDir?: string) => {
         const w = window as Window & {
           showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
         };
@@ -265,11 +261,9 @@ export function createBrowserUniedApi(): UniedTauriApi {
     lok: {
       open: async (_filePath: string): Promise<LokOpenResult> => lokUnavailable(),
       close: async (_docId: number) => lokUnavailable(),
-      renderTile: async (_req: LokTileRequest): Promise<LokTileResult> =>
-        lokUnavailable(),
-      postKey: async (_payload: LokKeyEventPayload) => lokUnavailable(),
-      postMouse: async (_payload: LokMouseEventPayload) => lokUnavailable(),
-      docSize: async (_docId: number) => lokUnavailable(),
+      renderTile: async (..._args: unknown[]) => lokUnavailable() as string,
+      postMouse: async (..._args: unknown[]) => lokUnavailable(),
+      postKey: async (..._args: unknown[]) => lokUnavailable(),
       command: async (_cmd: string, _args?: unknown) => lokUnavailable(),
     },
 

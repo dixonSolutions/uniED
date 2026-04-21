@@ -4,247 +4,372 @@ import {
   Input,
   Output,
   computed,
-  inject,
   signal,
 } from '@angular/core';
 import { TreeNode } from 'primeng/api';
 import { ButtonModule } from 'primeng/button';
+import { IconFieldModule } from 'primeng/iconfield';
+import { InputIconModule } from 'primeng/inputicon';
+import { InputTextModule } from 'primeng/inputtext';
+import { SkeletonModule } from 'primeng/skeleton';
 import { TooltipModule } from 'primeng/tooltip';
 import { TreeModule } from 'primeng/tree';
 import type { FsTreeNode } from '@unied/shared-types';
-import { ThemeService } from '../services/theme.service';
+import { SettingsDialogComponent } from '../shell/settings-dialog.component';
 
 @Component({
   selector: 'app-sidebar',
   standalone: true,
-  imports: [ButtonModule, TooltipModule, TreeModule],
+  imports: [
+    ButtonModule,
+    IconFieldModule,
+    InputIconModule,
+    InputTextModule,
+    SettingsDialogComponent,
+    SkeletonModule,
+    TooltipModule,
+    TreeModule,
+  ],
   template: `
-    <div class="sidebar">
-      <!-- Folder header -->
-      <header class="sidebar-header">
-        <div class="folder-meta">
-          <i class="pi pi-folder" aria-hidden="true"></i>
-          <span class="folder-name" [title]="rootPath ?? ''">{{ folderName() }}</span>
-        </div>
-        <button
-          type="button"
-          class="icon-btn"
-          pTooltip="Open another folder"
-          tooltipPosition="right"
-          aria-label="Open another folder"
-          (click)="openFolder.emit()"
-        >
-          <i class="pi pi-folder-open" aria-hidden="true"></i>
-        </button>
-      </header>
+    <div class="explorer">
 
-      <!-- File tree -->
+      <!-- ── Folder label row ── -->
+      <div class="vault-row" (mouseenter)="hovered = true" (mouseleave)="hovered = false">
+        <span class="vault-name" [title]="rootPath ?? ''">{{ folderName() }}</span>
+        <p-button
+          icon="pi pi-folder-open"
+          [text]="true"
+          [rounded]="true"
+          size="small"
+          pTooltip="Open another folder"
+          tooltipPosition="bottom"
+          aria-label="Open another folder"
+          [class.vault-action-hidden]="!hovered"
+          (onClick)="openFolder.emit()"
+        />
+      </div>
+
+      <!-- ── Search bar (only when a folder is open) ── -->
+      @if (rootPath) {
+        <div class="search-row">
+          <p-iconfield class="search-field">
+            <p-inputicon class="pi pi-search" />
+            <input
+              pInputText
+              type="search"
+              placeholder="Search files and folders…"
+              [value]="searchQuery()"
+              (input)="searchQuery.set($any($event.target).value)"
+              class="search-input"
+              aria-label="Search files and folders"
+            />
+          </p-iconfield>
+        </div>
+      }
+
+      <!-- ── Tree area (flex: 1, scrolls internally) ── -->
       <div class="tree-wrap">
         @if (loading) {
-          <p class="status">Loading…</p>
-        } @else if (treeError) {
-          <p class="status error" [title]="treeError">
-            <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-            Could not read folder.
-          </p>
+          <div class="skeleton-list" aria-label="Loading files" aria-busy="true">
+            @for (w of skeletonWidths; track $index) {
+              <p-skeleton height="0.875rem" [style]="{ width: w }" />
+            }
+          </div>
+
+        } @else if (searchQuery().trim()) {
+          <!-- Flat search results -->
+          @if (searchResults().length) {
+            <div class="result-list" role="listbox" aria-label="Search results">
+              @for (node of searchResults(); track node.data) {
+                <div
+                  class="result-item"
+                  [class.result-item--dir]="!node.leaf"
+                  role="option"
+                  tabindex="0"
+                  (click)="onSearchSelect(node)"
+                  (keydown.enter)="onSearchSelect(node)"
+                  (keydown.space)="$event.preventDefault(); onSearchSelect(node)"
+                >
+                  <i
+                    class="pi result-icon"
+                    [class.pi-file]="node.leaf"
+                    [class.pi-folder]="!node.leaf"
+                    aria-hidden="true"
+                  ></i>
+                  <div class="result-body">
+                    <span class="result-name">{{ node.label }}</span>
+                    <span class="result-path">{{ node.data }}</span>
+                  </div>
+                </div>
+              }
+            </div>
+          } @else {
+            <p class="empty-note">No results for "{{ searchQuery() }}"</p>
+          }
+
         } @else if (treeValue().length) {
+          <!-- Full tree with built-in virtual scroll -->
           <p-tree
             [value]="treeValue()"
-            styleClass="unied-tree"
+            styleClass="obs-tree"
+            selectionMode="single"
+            [(selection)]="selectedNode"
             (onNodeSelect)="onNodeSelect($event)"
+            [virtualScroll]="true"
+            [virtualScrollItemSize]="28"
+            scrollHeight="flex"
           ></p-tree>
+
         } @else {
-          <p class="status">Empty folder.</p>
+          <p class="empty-note">No files</p>
         }
       </div>
 
-      <!-- Bottom toolbar: theme toggle + settings -->
-      <footer class="sidebar-footer">
-        <div class="footer-group">
-          <button
-            type="button"
-            class="icon-btn"
-            [class.active]="theme.mode() === 'light'"
-            pTooltip="Light theme"
-            tooltipPosition="right"
-            aria-label="Switch to light theme"
-            (click)="theme.setMode('light')"
-          >
-            <i class="pi pi-sun" aria-hidden="true"></i>
-          </button>
-          <button
-            type="button"
-            class="icon-btn"
-            [class.active]="theme.mode() === 'dark'"
-            pTooltip="Dark theme"
-            tooltipPosition="right"
-            aria-label="Switch to dark theme"
-            (click)="theme.setMode('dark')"
-          >
-            <i class="pi pi-moon" aria-hidden="true"></i>
-          </button>
-        </div>
-        <button
-          type="button"
-          class="icon-btn"
-          pTooltip="Settings (coming soon)"
+      <!-- ── Bottom ribbon: settings gear ── -->
+      <div class="ribbon">
+        <p-button
+          icon="pi pi-cog"
+          [text]="true"
+          [rounded]="true"
+          pTooltip="Settings"
           tooltipPosition="right"
-          aria-label="Settings"
-          disabled
-        >
-          <i class="pi pi-cog" aria-hidden="true"></i>
-        </button>
-      </footer>
+          aria-label="Open settings"
+          styleClass="ribbon-cog"
+          (onClick)="settingsOpen = true"
+        />
+      </div>
+
+      <!-- Settings dialog -->
+      @if (settingsOpen) {
+        <app-settings-dialog (close)="settingsOpen = false" />
+      }
     </div>
   `,
   styles: `
     :host {
       display: flex;
+      flex-direction: column;
       flex: 1;
-      min-width: 0;
+      /* Ensure the host fills 100% of the splitter panel height */
+      height: 100%;
       min-height: 0;
+      min-width: 0;
       background: var(--surface-card);
     }
 
-    .sidebar {
+    .explorer {
       display: flex;
       flex-direction: column;
       flex: 1;
+      height: 100%;
       min-height: 0;
       min-width: 0;
+      user-select: none;
+      overflow: hidden;
     }
 
-    /* ── Header ── */
-    .sidebar-header {
+    /* ── Vault label row ── */
+    .vault-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 0.5rem;
-      padding: 0.5rem 0.5rem 0.5rem 0.75rem;
-      border-bottom: 1px solid var(--surface-border);
+      padding: 0.625rem 0.75rem 0.375rem;
       flex-shrink: 0;
-    }
-
-    .folder-meta {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
       min-width: 0;
     }
 
-    .folder-meta .pi {
+    .vault-name {
+      font-size: 0.6875rem;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
       color: var(--text-color-secondary);
-      font-size: 0.875rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+    }
+
+    .vault-action-hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* ── Search bar ── */
+    .search-row {
+      padding: 0.25rem 0.625rem 0.5rem;
       flex-shrink: 0;
     }
 
-    .folder-name {
+    .search-field {
+      width: 100%;
+    }
+
+    .search-input {
+      width: 100%;
       font-size: 0.8125rem;
-      font-weight: 600;
+      height: 1.875rem;
+      padding-top: 0;
+      padding-bottom: 0;
+      background: var(--surface-ground);
+      border-color: var(--surface-border);
+    }
+
+    /* ── Tree / results area ── */
+    .tree-wrap {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .empty-note {
+      margin: 0;
+      padding: 0.5rem 0.875rem;
+      font-size: 0.8125rem;
+      color: var(--text-color-secondary);
+    }
+
+    .skeleton-list {
+      padding: 0.25rem 0.875rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    /* ── Search results ── */
+    .result-list {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      padding: 0.25rem 0;
+    }
+
+    .result-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+      padding: 0.3rem 0.875rem;
+      cursor: pointer;
+      border-radius: 0;
+      transition: background 80ms ease;
+      min-width: 0;
+    }
+
+    .result-item:hover,
+    .result-item:focus-visible {
+      background: var(--surface-hover);
+      outline: none;
+    }
+
+    .result-icon {
+      font-size: 0.8125rem;
+      margin-top: 0.175rem;
+      flex-shrink: 0;
+      color: var(--text-color-secondary);
+    }
+
+    .result-item--dir .result-icon {
+      color: var(--yellow-400, #facc15);
+    }
+
+    .result-body {
+      display: flex;
+      flex-direction: column;
+      gap: 0.1rem;
+      min-width: 0;
+    }
+
+    .result-name {
+      font-size: 0.8125rem;
       color: var(--text-color);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
 
-    /* ── File tree ── */
-    .tree-wrap {
+    .result-path {
+      font-size: 0.6875rem;
+      color: var(--text-color-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      opacity: 0.75;
+    }
+
+    /* ── Bottom ribbon ── */
+    .ribbon {
+      display: flex;
+      align-items: center;
+      padding: 0.375rem 0.5rem;
+      flex-shrink: 0;
+      border-top: 1px solid var(--surface-border);
+    }
+
+    :host ::ng-deep .ribbon-cog.p-button {
+      width: 2rem;
+      height: 2rem;
+      font-size: 1.0625rem;
+    }
+
+    /* ── PrimeNG Tree: Obsidian-style overrides ── */
+    :host ::ng-deep .obs-tree {
+      background: transparent;
+      border: none;
+      padding: 0 0 0.5rem;
+      width: 100%;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Virtual-scroll container must fill the tree-wrap */
+    :host ::ng-deep .obs-tree .p-tree-wrapper {
       flex: 1;
       min-height: 0;
-      overflow: auto;
     }
 
-    .status {
-      margin: 0;
-      padding: 0.875rem 1rem;
-      color: var(--text-color-secondary);
-      font-size: 0.875rem;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
+    :host ::ng-deep .obs-tree .p-tree-container {
+      overflow: visible;
     }
 
-    .status.error {
-      color: var(--red-400, #f87171);
+    :host ::ng-deep .obs-tree .p-treenode {
+      padding: 0;
     }
 
-    /* ── Footer ── */
-    .sidebar-footer {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0.375rem 0.5rem;
-      border-top: 1px solid var(--surface-border);
-      flex-shrink: 0;
+    :host ::ng-deep .obs-tree .p-treenode-content {
+      padding: 0.2rem 0.75rem;
+      border-radius: 0;
+      gap: 0.35rem;
     }
 
-    .footer-group {
-      display: flex;
-      align-items: center;
-      gap: 0.125rem;
+    :host ::ng-deep .obs-tree .p-treenode-content:hover {
+      background: var(--surface-hover);
     }
 
-    /* ── Shared icon button ── */
-    .icon-btn {
-      display: inline-grid;
-      place-items: center;
-      width: 1.875rem;
-      height: 1.875rem;
-      border-radius: 6px;
-      border: none;
-      background: transparent;
-      color: var(--text-color-secondary);
-      cursor: pointer;
-      transition: background 120ms ease, color 120ms ease;
-      flex-shrink: 0;
-    }
-
-    .icon-btn:hover:not(:disabled) {
+    :host ::ng-deep .obs-tree .p-treenode-content.p-highlight {
       background: var(--surface-hover);
       color: var(--text-color);
     }
 
-    .icon-btn.active {
-      color: var(--primary-color);
-    }
-
-    .icon-btn:disabled {
-      opacity: 0.4;
-      cursor: default;
-    }
-
-    .icon-btn:focus-visible {
-      outline: 2px solid var(--primary-color);
-      outline-offset: -2px;
-    }
-
-    .icon-btn .pi {
-      font-size: 0.9375rem;
-    }
-
-    /* ── PrimeNG tree overrides ── */
-    :host ::ng-deep .unied-tree {
-      background: transparent;
-      border: none;
-      padding: 0.25rem 0;
-      width: 100%;
-    }
-
-    :host ::ng-deep .unied-tree .p-tree-container {
-      overflow: visible;
-      max-height: none;
-    }
-
-    :host ::ng-deep .unied-tree .p-treenode-content {
-      padding: 0.25rem 0.5rem;
-      border-radius: 4px;
-    }
-
-    :host ::ng-deep .unied-tree .p-treenode-label {
+    :host ::ng-deep .obs-tree .p-treenode-label {
       font-size: 0.8125rem;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+
+    :host ::ng-deep .obs-tree .p-tree-toggler {
+      width: 1rem;
+      height: 1rem;
+      flex-shrink: 0;
+    }
+
+    :host ::ng-deep .obs-tree .p-treenode-icon {
+      font-size: 0.8125rem;
+      flex-shrink: 0;
     }
   `,
 })
@@ -254,17 +379,29 @@ export class SidebarComponent {
   }
   @Input() rootPath: string | null = null;
   @Input() loading = false;
-  @Input() treeError: string | null = null;
   @Output() openFolder = new EventEmitter<void>();
   @Output() fileClick = new EventEmitter<string>();
 
-  readonly theme = inject(ThemeService);
+  hovered = false;
+  settingsOpen = false;
+  selectedNode: TreeNode | null = null;
+
+  readonly searchQuery = signal('');
+
+  readonly skeletonWidths = ['60%', '85%', '45%', '70%', '55%', '80%', '40%'];
 
   private readonly nodesSignal = signal<FsTreeNode[]>([]);
   readonly treeValue = computed(() => toTreeNodes(this.nodesSignal()));
 
+  /** Flat list of all nodes whose name matches the current search query. */
+  readonly searchResults = computed((): TreeNode[] => {
+    const q = this.searchQuery().trim().toLowerCase();
+    if (!q) return [];
+    return flatSearch(this.nodesSignal(), q);
+  });
+
   folderName(): string {
-    if (!this.rootPath) return 'Workspace';
+    if (!this.rootPath) return 'Explorer';
     return (
       this.rootPath
         .replace(/[\\/]+$/, '')
@@ -280,22 +417,65 @@ export class SidebarComponent {
       this.fileClick.emit(n.data);
     }
   }
+
+  onSearchSelect(node: TreeNode): void {
+    if (node.leaf && typeof node.data === 'string') {
+      this.fileClick.emit(node.data);
+      this.searchQuery.set('');
+    }
+  }
 }
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function toTreeNodes(nodes: FsTreeNode[], depth = 0): TreeNode[] {
   return nodes.map((node) => {
     const isDir = node.kind === 'directory';
     const children =
       isDir && node.children?.length ? toTreeNodes(node.children, depth + 1) : undefined;
+
+    if (isDir) {
+      return {
+        label: node.name,
+        data: node.path,
+        leaf: false,
+        expandedIcon: 'pi pi-folder-open',
+        collapsedIcon: 'pi pi-folder',
+        expanded: depth === 0,
+        children: children ?? [],
+      };
+    }
+
     return {
       label: node.name,
       data: node.path,
-      leaf: !isDir,
-      icon: isDir ? 'pi pi-folder' : 'pi pi-file',
-      expandedIcon: isDir ? 'pi pi-folder-open' : undefined,
-      collapsedIcon: isDir ? 'pi pi-folder' : undefined,
-      expanded: depth === 0,
-      children,
+      leaf: true,
+      icon: 'pi pi-file',
     };
   });
+}
+
+/** Recursively collect all nodes whose name contains the query string. */
+function flatSearch(nodes: FsTreeNode[], query: string): TreeNode[] {
+  const results: TreeNode[] = [];
+
+  function walk(items: FsTreeNode[]): void {
+    for (const n of items) {
+      if (n.name.toLowerCase().includes(query)) {
+        results.push({
+          label: n.name,
+          data: n.path,
+          leaf: n.kind === 'file',
+        });
+      }
+      if (n.children?.length) {
+        walk(n.children);
+      }
+    }
+  }
+
+  walk(nodes);
+  return results;
 }

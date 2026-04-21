@@ -4,8 +4,8 @@ import { getUniedApi } from './tauri-backend';
 
 @Injectable({ providedIn: 'root' })
 export class FsService {
-  openFolder(): Promise<string | null> {
-    return getUniedApi().fs.openFolder();
+  openFolder(defaultDir?: string): Promise<string | null> {
+    return getUniedApi().fs.openFolder(defaultDir);
   }
 
   readDir(rootPath: string): Promise<FsTreeNode[]> {

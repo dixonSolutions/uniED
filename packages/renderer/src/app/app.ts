@@ -8,6 +8,9 @@ import { ConfigService } from './services/config.service';
 import { FsService } from './services/fs.service';
 import { ThemeService } from './services/theme.service';
 import { TabsService } from './services/tabs.service';
+import { MessageService } from 'primeng/api';
+import { SplitterModule } from 'primeng/splitter';
+import { ToastModule } from 'primeng/toast';
 
 @Component({
   selector: 'app-root',
@@ -17,39 +20,39 @@ import { TabsService } from './services/tabs.service';
     SidebarComponent,
     TabBarComponent,
     EditorPaneComponent,
+    SplitterModule,
+    ToastModule,
   ],
   template: `
+    <p-toast position="bottom-right" [life]="5000" />
     <div class="app-shell">
       @if (rootFolder(); as folder) {
-        <div class="workspace">
-          <aside class="side" [style.width.px]="sidebarWidth()">
+        <p-splitter
+          styleClass="workspace-splitter"
+          [panelSizes]="[22, 78]"
+          [minSizes]="[14, 40]"
+        >
+          <ng-template pTemplate>
             <app-sidebar
               [rootPath]="folder"
               [nodes]="tree()"
               [loading]="loading()"
-              [treeError]="treeError()"
               (openFolder)="onOpenFolder()"
               (fileClick)="onFileOpen($event)"
             />
-          </aside>
-          <div
-            class="resizer"
-            role="separator"
-            aria-orientation="vertical"
-            tabindex="0"
-            (mousedown)="startResize($event)"
-            (keydown)="onResizerKey($event)"
-          ></div>
-          <main class="main">
-            <app-tab-bar
-              [tabs]="tabs.tabs()"
-              [activeId]="tabs.activeId()"
-              (select)="tabs.selectTab($event)"
-              (close)="onTabClose($event)"
-            />
-            <app-editor-pane />
-          </main>
-        </div>
+          </ng-template>
+          <ng-template pTemplate>
+            <div class="main">
+              <app-tab-bar
+                [tabs]="tabs.tabs()"
+                [activeId]="tabs.activeId()"
+                (select)="tabs.selectTab($event)"
+                (close)="onTabClose($event)"
+              />
+              <app-editor-pane />
+            </div>
+          </ng-template>
+        </p-splitter>
       } @else {
         <app-welcome
           [lastFolder]="lastFolderHint()"
@@ -64,6 +67,7 @@ import { TabsService } from './services/tabs.service';
       display: block;
       height: 100%;
     }
+
     .app-shell {
       display: flex;
       flex-direction: column;
@@ -71,39 +75,56 @@ import { TabsService } from './services/tabs.service';
       min-height: 0;
       overflow: hidden;
     }
+
     app-welcome {
       flex: 1;
       min-height: 0;
     }
-    .workspace {
+
+    /* Make the splitter fill all vertical space */
+    :host ::ng-deep .workspace-splitter.p-splitter {
       flex: 1;
-      display: grid;
-      grid-template-columns: auto 6px 1fr;
       min-height: 0;
-      overflow: hidden;
+      border: none;
+      border-radius: 0;
       background: var(--surface-ground);
     }
-    .side {
-      min-width: 200px;
-      max-width: 480px;
-      height: 100%;
-      min-height: 0;
-      overflow: hidden;
-      display: flex;
+
+    /* Sidebar panel — must be a flex column so app-sidebar can stretch to fill it */
+    :host ::ng-deep .workspace-splitter .p-splitter-panel:first-child {
+      min-width: 180px;
+      max-width: 520px;
       background: var(--surface-card);
       border-right: 1px solid var(--surface-border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      /* Explicit height ensures the sidebar's flex children can use flex: 1 */
+      height: 100%;
     }
-    .resizer {
-      cursor: col-resize;
-      background: transparent;
-      position: relative;
+
+    /* app-sidebar fills the whole panel */
+    :host ::ng-deep .workspace-splitter .p-splitter-panel:first-child app-sidebar {
+      flex: 1;
+      min-height: 0;
+      height: 100%;
     }
-    .resizer:hover,
-    .resizer:focus-visible {
+
+    /* Gutter styling */
+    :host ::ng-deep .workspace-splitter .p-splitter-gutter {
+      background: var(--surface-border);
+      width: 4px;
+      transition: background 120ms ease;
+    }
+
+    :host ::ng-deep .workspace-splitter .p-splitter-gutter:hover,
+    :host ::ng-deep .workspace-splitter .p-splitter-gutter-handle:focus {
       background: var(--primary-color);
-      outline: none;
     }
+
+    /* Main editor panel */
     .main {
+      flex: 1;
       min-width: 0;
       min-height: 0;
       height: 100%;
@@ -112,6 +133,13 @@ import { TabsService } from './services/tabs.service';
       overflow: hidden;
       background: var(--surface-ground);
     }
+
+    :host ::ng-deep .workspace-splitter .p-splitter-panel:last-child {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      overflow: hidden;
+    }
   `,
 })
 export class App implements OnInit, OnDestroy {
@@ -119,16 +147,14 @@ export class App implements OnInit, OnDestroy {
   readonly config = inject(ConfigService);
   readonly theme = inject(ThemeService);
   readonly tabs = inject(TabsService);
+  private readonly msg = inject(MessageService);
 
   readonly rootFolder = signal<string | null>(null);
   readonly tree = signal<FsTreeNode[]>([]);
   readonly loading = signal<boolean>(false);
-  readonly treeError = signal<string | null>(null);
   readonly lastFolderHint = signal<string | null>(null);
-  readonly sidebarWidth = signal<number>(280);
 
   private unwatchFs: (() => void) | null = null;
-  private resizeStart: { x: number; w: number } | null = null;
 
   async ngOnInit(): Promise<void> {
     // Never let any startup step freeze the UI — each awaited call is independent.
@@ -146,12 +172,17 @@ export class App implements OnInit, OnDestroy {
       try {
         const nodes = await this.fs.readDir(lastFolder);
         this.tree.set(nodes);
-        this.treeError.set(null);
         this.rootFolder.set(lastFolder);
         this.fs.watch(lastFolder).catch(() => { /* watcher optional */ });
-      } catch {
+      } catch (err) {
+        // Stay on welcome screen; keep the hint so "Reopen" button remains visible.
         this.rootFolder.set(null);
-        this.lastFolderHint.set(null);
+        this.msg.add({
+          severity: 'error',
+          summary: 'Could not open workspace',
+          detail: `"${lastFolder.split(/[/\\]/).pop()}" could not be read. ${String(err)}`,
+          life: 6000,
+        });
       } finally {
         this.loading.set(false);
       }
@@ -168,7 +199,8 @@ export class App implements OnInit, OnDestroy {
   }
 
   async onOpenFolder(): Promise<void> {
-    const folder = await this.fs.openFolder();
+    const defaultDir = this.rootFolder() ?? this.lastFolderHint() ?? undefined;
+    const folder = await this.fs.openFolder(defaultDir);
     if (!folder) return;
 
     // Show workspace immediately — don't wait for tree or watcher.
@@ -177,19 +209,27 @@ export class App implements OnInit, OnDestroy {
     this.config.set({ lastWorkspaceFolder: folder }).catch(() => {});
 
     this.loading.set(true);
-    this.treeError.set(null);
     try {
       const nodes = await this.fs.readDir(folder);
       this.tree.set(nodes);
     } catch (err) {
       this.tree.set([]);
-      this.treeError.set(String(err));
+      // Drop back to welcome screen and show a toast — don't leave a broken workspace open.
+      this.rootFolder.set(null);
       console.error('[uniED] readDir failed:', err);
+      this.msg.add({
+        severity: 'error',
+        summary: 'Could not read folder',
+        detail: String(err),
+        life: 6000,
+      });
     } finally {
       this.loading.set(false);
     }
 
-    this.fs.watch(folder).catch(() => {});
+    if (this.rootFolder()) {
+      this.fs.watch(folder).catch(() => {});
+    }
   }
 
   async onReopenLast(): Promise<void> {
@@ -197,18 +237,25 @@ export class App implements OnInit, OnDestroy {
     if (!last) return;
     this.rootFolder.set(last);
     this.loading.set(true);
-    this.treeError.set(null);
     try {
       const nodes = await this.fs.readDir(last);
       this.tree.set(nodes);
     } catch (err) {
       this.tree.set([]);
-      this.treeError.set(String(err));
+      this.rootFolder.set(null);
       console.error('[uniED] readDir failed:', err);
+      this.msg.add({
+        severity: 'error',
+        summary: 'Could not open workspace',
+        detail: String(err),
+        life: 6000,
+      });
     } finally {
       this.loading.set(false);
     }
-    this.fs.watch(last).catch(() => {});
+    if (this.rootFolder()) {
+      this.fs.watch(last).catch(() => {});
+    }
   }
 
   async refreshTree(): Promise<void> {
@@ -220,7 +267,6 @@ export class App implements OnInit, OnDestroy {
     try {
       const nodes = await this.fs.readDir(root);
       this.tree.set(nodes);
-      this.treeError.set(null);
     } catch (err) {
       console.error('[uniED] refreshTree failed:', err);
     }
@@ -232,32 +278,5 @@ export class App implements OnInit, OnDestroy {
 
   onTabClose(id: string): void {
     this.tabs.closeTab(id);
-  }
-
-  startResize(ev: MouseEvent): void {
-    ev.preventDefault();
-    this.resizeStart = { x: ev.clientX, w: this.sidebarWidth() };
-    const move = (e: MouseEvent) => this.onResizeMove(e);
-    const up = () => {
-      this.resizeStart = null;
-      window.removeEventListener('mousemove', move);
-      window.removeEventListener('mouseup', up);
-    };
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseup', up);
-  }
-
-  private onResizeMove(ev: MouseEvent): void {
-    if (!this.resizeStart) return;
-    const next = this.resizeStart.w + (ev.clientX - this.resizeStart.x);
-    this.sidebarWidth.set(Math.max(200, Math.min(560, next)));
-  }
-
-  onResizerKey(ev: KeyboardEvent): void {
-    if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') {
-      ev.preventDefault();
-      const delta = ev.key === 'ArrowLeft' ? -16 : 16;
-      this.sidebarWidth.set(Math.max(200, Math.min(560, this.sidebarWidth() + delta)));
-    }
   }
 }

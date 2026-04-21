@@ -104,15 +104,28 @@ fn read_dir_recursive(dir: &Path, max_depth: usize, depth: usize) -> Result<Vec<
 /// We also convert via `into_path()` so we always get a plain `/absolute/path`
 /// string rather than a `file:///…` URL, which would fail `validate_abs`.
 #[tauri::command]
-pub async fn fs_open_folder(app: AppHandle) -> Result<Option<String>, String> {
+pub async fn fs_open_folder(
+    app: AppHandle,
+    default_dir: Option<String>,
+) -> Result<Option<String>, String> {
     let (tx, rx) = oneshot::channel();
-    app.dialog()
-        .file()
-        .set_title("Open workspace folder")
-        .pick_folder(move |folder| {
-            let path_str = folder.and_then(file_path_to_string);
-            let _ = tx.send(path_str);
-        });
+
+    // Resolve starting directory: caller-supplied path → home dir → no default.
+    let start_dir: Option<PathBuf> = default_dir
+        .and_then(|d| {
+            let p = PathBuf::from(&d);
+            if p.is_dir() { Some(p) } else { p.parent().map(|pp| pp.to_path_buf()) }
+        })
+        .or_else(|| app.path().home_dir().ok());
+
+    let mut builder = app.dialog().file().set_title("Open workspace folder");
+    if let Some(dir) = start_dir {
+        builder = builder.set_directory(dir);
+    }
+    builder.pick_folder(move |folder| {
+        let path_str = folder.and_then(file_path_to_string);
+        let _ = tx.send(path_str);
+    });
     rx.await.map_err(|e| e.to_string())
 }
 
@@ -243,38 +256,87 @@ pub fn config_set(app: AppHandle, partial: Value) -> Result<Value, String> {
     Ok(current)
 }
 
+/// Open a LibreOffice document for interactive tile-rendering.
+/// Returns the doc_id plus the full document size in twips (1 twip = 1/1440 inch).
 #[tauri::command]
-pub fn lok_open(file_path: String) -> Result<Value, String> {
-    let _ = file_path;
-    Err(
-        "LibreOfficeKit is not yet available in the Tauri build. See docs/LOK_INTEGRATION.md."
-            .into(),
-    )
+pub async fn lok_open(file_path: String) -> Result<Value, String> {
+    let path = validate_abs(&file_path)?;
+    if !path.exists() {
+        return Err(format!("File not found: {file_path}"));
+    }
+
+    let result = tokio::task::spawn_blocking(move || crate::lok::open_doc(&file_path))
+        .await
+        .map_err(|e| format!("LOK task panicked: {e}"))??;
+
+    Ok(json!({
+        "docId":       result.doc_id,
+        "widthTwips":  result.width_twips,
+        "heightTwips": result.height_twips,
+    }))
 }
 
+/// Destroy a previously opened document and free LOK resources.
 #[tauri::command]
-pub fn lok_close(doc_id: i64) -> Result<(), String> {
-    Ok(())
+pub async fn lok_close(doc_id: u32) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || crate::lok::close_doc(doc_id))
+        .await
+        .map_err(|e| format!("LOK task panicked: {e}"))?
 }
 
+/// Render a document tile and return the pixels as a base64-encoded RGBA image.
+///
+/// `canvas_w` / `canvas_h` — pixel dimensions of the output buffer
+/// `tile_x`   / `tile_y`   — top-left corner of the region in twips
+/// `tile_w`   / `tile_h`   — width/height of the document region in twips
 #[tauri::command]
-pub fn lok_render_tile(req: Value) -> Result<Value, String> {
-    Err("LOK unavailable".into())
+pub async fn lok_render_tile(
+    doc_id:   u32,
+    canvas_w: i32,
+    canvas_h: i32,
+    tile_x:   i32,
+    tile_y:   i32,
+    tile_w:   i32,
+    tile_h:   i32,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        crate::lok::render_tile(doc_id, canvas_w, canvas_h, tile_x, tile_y, tile_w, tile_h)
+    })
+    .await
+    .map_err(|e| format!("LOK task panicked: {e}"))?
 }
 
+/// Forward a mouse event (type, position in twips, button mask, modifier mask).
 #[tauri::command]
-pub fn lok_post_key(payload: Value) -> Result<(), String> {
-    Ok(())
+pub async fn lok_post_mouse(
+    doc_id:     u32,
+    event_type: i32,
+    x:          i32,
+    y:          i32,
+    count:      i32,
+    buttons:    i32,
+    modifier:   i32,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        crate::lok::post_mouse(doc_id, event_type, x, y, count, buttons, modifier)
+    })
+    .await
+    .map_err(|e| format!("LOK task panicked: {e}"))?
 }
 
+/// Forward a keyboard event (type, Unicode char code, LOK key code).
 #[tauri::command]
-pub fn lok_post_mouse(payload: Value) -> Result<(), String> {
-    Ok(())
-}
-
-#[tauri::command]
-pub fn lok_doc_size(doc_id: i64) -> Result<Value, String> {
-    Err("LOK unavailable".into())
+pub async fn lok_post_key(
+    doc_id:     u32,
+    event_type: i32,
+    char_code:  i32,
+    key_code:   i32,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        crate::lok::post_key(doc_id, event_type, char_code, key_code)
+    })
+    .await
+    .map_err(|e| format!("LOK task panicked: {e}"))?
 }
 
 #[tauri::command]
